@@ -1,7 +1,8 @@
-![Logo of barq](https://raw.githubusercontent.com/Voulnet/barq/master/logo.png)
+![Logo of barq](https://raw.githubusercontent.com/zeinlol/barq/master/logo.png)
 
 # barq
-barq: The AWS Cloud Post Exploitation framework!
+The AWS Cloud Post Exploitation framework!
+forked from [Voulnet barq](https://github.com/Voulnet/barq) and deeply modified
 
 ## What is it?
 
@@ -10,25 +11,18 @@ barq is a post-exploitation framework that allows you to easily perform attacks 
 ## Prerequisites
 
 - An existing AWS account access key id and secret (Token too in some case) 
-- Python 2 or 3. It can run with both.
+- Python 3 only
 To run the msfvenom payloads, you need msfvenom to be available on your workstation, with the PATH setup correctly.
 
 ## Installing
 
-For python 2:
-```
-pip install -r requirements.txt
-```
-For python3
+Install requirements
+
 ```
 pip3 install -r requirements.txt
 ```
 
 Better to create a virtualenv environment for the tool. Please note that using sudo with pip is not recommended.
-
-## Author
-
-* **Mohammed Aldoub**, also known as **Voulnet**, find me on [Twitter](https://www.twitter.com/Voulnet)
 
 ## Main Features
 
@@ -42,9 +36,6 @@ Better to create a virtualenv environment for the tool. Please note that using s
 - Ability to use EC2 keys or tokens (for example acquired from compromised instances or leaked source code)
 - Printing for you the listening commands for msfconsole in cli mode for easy copy-pasting.
 
-## Contributing
-
-PRs are welcome!
 
 ### TODO:
 
@@ -57,10 +48,26 @@ PRs are welcome!
 
 ## Help
 
-- From outside (in the terminal), run it with -help.
+```text
+usage: barq.py [-h] [-k KEY_ID] [-s SECRET_KEY] [-r [REGION ...]] [-t TOKEN]
+
+The AWS Cloud Post Exploitation framework
+
+options:
+  -h, --help            show this help message and exit
+  -k KEY_ID, --key-id KEY_ID
+                        The AWS access key id
+  -s SECRET_KEY, --secret-key SECRET_KEY
+                        The AWS secret access key. (--key-id must be set)
+  -r [REGION ...], --region [REGION ...]
+                        Region to use. If not set - all regions will be
+                        scanned. (--key-id must be set)
+  -t TOKEN, --token TOKEN
+                        The AWS session token to use. (--key-id must be set)
+```
 - From inside the tool, run **help** to see each menu's command options.
 
-## Questions?
+## Authors
 
-- Raise an issue here in Github.
-- Contact me on Twitter.
+* **Mohammed Aldoub**, also known as **Voulnet**, find me on [Twitter](https://www.twitter.com/Voulnet)
+* **Nick Borshchov. My [LinkedIn](https://www.linkedin.com/in/nick-borshchov/)
