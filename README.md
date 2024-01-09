@@ -2,7 +2,8 @@
 
 # barq
 The AWS Cloud Post Exploitation framework!
-forked from [Voulnet barq](https://github.com/Voulnet/barq) and deeply modified
+
+Forked from [Voulnet barq](https://github.com/Voulnet/barq) and deeply modified and reworked
 
 ## What is it?
 
@@ -35,11 +36,10 @@ Better to create a virtualenv environment for the tool. Please note that using s
 - Ability to dump EC2 instance metadata details.
 - Ability to use EC2 keys or tokens (for example acquired from compromised instances or leaked source code)
 - Printing for you the listening commands for msfconsole in cli mode for easy copy-pasting.
-
+- Create a plugin-based class system for menus in the framework
 
 ### TODO:
 
-- Create a plugin-based class system for menus in the framework
 - Add a feature to exclude attacker-defined IPs and ports from security groups.
 - Add persistence functionality.
 - Launch attacks against Lambda, S3 and RDS.
@@ -69,5 +69,5 @@ options:
 
 ## Authors
 
-* **Mohammed Aldoub**, also known as **Voulnet**, find me on [Twitter](https://www.twitter.com/Voulnet)
-* **Nick Borshchov. My [LinkedIn](https://www.linkedin.com/in/nick-borshchov/)
+* **Nick Borshchov**. [LinkedIn](https://www.linkedin.com/in/nick-borshchov/)
+* **Mohammed Aldoub**, also known as **Voulnet**. [Twitter](https://www.twitter.com/Voulnet)
