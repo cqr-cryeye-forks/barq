@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 
 @dataclass
@@ -11,3 +11,6 @@ class EC2Instance:
     state: str = ''
     region: str = ''
     iam_profile: str = ''
+
+    def dict(self):
+        return asdict(self)

@@ -1,9 +1,13 @@
+import json
+
 import boto3
 from botocore.exceptions import ClientError
 from clint.textui import prompt
 from prettytable import PrettyTable
 
+from src.helpers.encoder import CustomEncoder
 from src.helpers.print_output import print_color, print_table
+from src.scanner.attack_setup import AttackSetup
 from src.scanner.records import findings
 from src.scanner.records.aws_credentials import AWSCredentials
 from src.scanner.records.command_invocations import CommandInvocation
@@ -19,6 +23,8 @@ class BarqScannerCore:
                  secret_access_key: T_SECRET_KEY,
                  region_name: T_REGION_NAME,
                  session_token: T_TOKEN = None,
+                 output: str | None = None,
+                 attack_setup: AttackSetup = AttackSetup()
                  ):
         self.aws_creds: AWSCredentials = AWSCredentials(
             session_token=session_token,
@@ -28,30 +34,50 @@ class BarqScannerCore:
         )
         self.session: boto3.session.Session | None = None
         self.findings: findings.Findings = findings.Findings()
-        self.ec_2_instances: list[EC2Instance] = []
         self.lambda_functions: list[LambdaFunction] = []
         self.command_invocations: list[CommandInvocation] = []
         self.security_groups: list[SecurityGroup] = []
         self.ec2_instances: list[EC2Instance] = []
+        self.output: str | None = output
+        self.attack_setup: AttackSetup = attack_setup
+        self._auto: bool = False
+
+    def get_setup_value(self, input_text_title: str, default_value: str) -> str:
+        if self._auto:
+            return default_value
+        print_color(f'[*] {input_text_title}')
+        return prompt.query('Override value (or press Enter to use default): ', default=default_value)
 
     def add_ec2_instance(self, instance: EC2Instance) -> None:
         self.ec2_instances.append(instance)
+        if self.output:
+            self.update_output_data()
 
     def add_lamda_function(self, function: LambdaFunction) -> None:
         self.lambda_functions.append(function)
+        if self.output:
+            self.update_output_data()
 
     def add_command_invocation(self, command: CommandInvocation) -> None:
         self.command_invocations.append(command)
+        if self.output:
+            self.update_output_data()
 
     def add_security_group(self, group: SecurityGroup) -> None:
         self.security_groups.append(group)
+        if self.output:
+            self.update_output_data()
 
     def add_findings(self, finding: findings.Secret | findings.Parameter) -> None:
         match type(finding):
             case findings.Secret:
                 self.findings.secrets.append(finding)
+                if self.output:
+                    self.update_output_data()
             case findings.Parameter:
                 self.findings.parameters.append(finding)
+                if self.output:
+                    self.update_output_data()
         raise ValueError(f"type '{type(finding)}' is not supported!")
 
     def set_aws_creds(self,
@@ -222,9 +248,23 @@ class BarqScannerCore:
         for region in self.aws_creds.possible_regions:
             region_table.add_row([region])
         print(region_table)
-        chosen_region = prompt.query(
-            'What is your preferred AWS region?', default='us-east-1')
+        chosen_region = self.get_setup_value(
+            input_text_title='What is your preferred AWS region?',
+            default_value=self.aws_creds.region_name, )
         if chosen_region not in self.aws_creds.possible_regions:
             print_color("[!] Invalid AWS region! Exiting....")
             exit()
         return chosen_region
+
+    def update_output_data(self):
+        with open(self.output, 'w') as file:
+            results = {
+                'lambda_functions': self.lambda_functions,
+                'command_invocations': self.command_invocations,
+                'security_groups': self.security_groups,
+                'ec2_instances': self.ec2_instances,
+                'secrets': self.findings.secrets,
+                'tokens': self.findings.tokens,
+                'parameters': self.findings.parameters,
+            }
+            json.dump(results, file, indent=2, cls=CustomEncoder)

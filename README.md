@@ -27,6 +27,7 @@ Better to create a virtualenv environment for the tool. Please note that using s
 
 ## Main Features
 
+- Fully automated scanning
 - Attacking EC2 instances without knowing keypairs or connection profiles/passwords.
 - Dumping EC2 secrets and parameters.
 - Enumerating EC2 instances and security groups.
@@ -64,6 +65,29 @@ options:
                         scanned. (--key-id must be set)
   -t TOKEN, --token TOKEN
                         The AWS session token to use. (--key-id must be set)
+  -j JSON, --json JSON  Json file name or location where to save all results
+  -a, --auto            Proceed all scans in fully automated mode, without
+                        asking or requesting info. Make sure to provide all
+                        required info in props, otherwise some commands can be
+                        skipped
+  -u URL_ADDRESS, --url-address URL_ADDRESS
+                        URL for url attack.
+  -wf WINDOWS_FILE_PATH, --windows-file-path WINDOWS_FILE_PATH
+                        File path for Linux instances.
+  -lf LINUX_FILE_PATH, --linux-file-path LINUX_FILE_PATH
+                        File path for Windows instances.
+  -bc BASH_COMMAND, --bash-command BASH_COMMAND
+                        Bash attack command
+  -pc POWERSHELL_COMMAND, --powershell-command POWERSHELL_COMMAND
+                        PowerShell attack command
+  -rh REMOTE_HOST, --remote-host REMOTE_HOST
+                        Remote IP or hostname to connect back to
+  -rp REMOTE_PORT, --remote-port REMOTE_PORT
+                        Remote port for linux
+  -rpw REMOTE_PORT_WINDOWS, --remote-port-windows REMOTE_PORT_WINDOWS
+                        Remote port for windows
+  -ac ATTACK_COMMAND, --attack-command ATTACK_COMMAND
+                        Command to run
 ```
 - From inside the tool, run **help** to see each menu's command options.
 

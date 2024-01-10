@@ -15,6 +15,7 @@ from src.menu.pages.instances_page import InstancesPage
 from src.menu.pages.root_page import RootPage
 from src.menu.pages.training_page import TrainingPage
 from src.menu.root import MenuBase
+from src.scanner.attack_setup import AttackSetup
 from src.scanner.barq_scanner import BarqScanner
 
 
@@ -43,7 +44,9 @@ def start() -> NoReturn:
             print_color("[!] Getting available regions...")
             regions = get_all_aws_regions()
         if len(regions) > 1:
-            print_color(f"[!] Multi-regional scan! scan will be proceeded for each of available regions!")
+            print_color(f"[!] Multi-regional input! Scan will be proceeded for first of available region!")
+    scanner = None
+
     for region_name in regions:
         print_color(f"[*] Try to use region {region_name}...")
         try:
@@ -52,11 +55,33 @@ def start() -> NoReturn:
                 access_key_id=cli_arguments.key_id,
                 secret_access_key=cli_arguments.secret_key,
                 region_name=region_name,
+                output=cli_arguments.json,
+                attack_setup=AttackSetup(
+                    url_address=cli_arguments.url_address,
+                    linux_file_path=cli_arguments.linux_file_path,
+                    windows_file_path=cli_arguments.windows_file_path,
+                    bash_command=cli_arguments.bash_command,
+                    powershell_command=cli_arguments.powershell_command,
+                    remote_ip_host=cli_arguments.remote_host,
+                    remote_port=cli_arguments.remote_port,
+                    remote_port_windows=cli_arguments.remote_port_windows,
+                    command=cli_arguments.attack_command,
+                )
             )
             scanner.init_aws_session()
+            break
         except ClientError:
             print_color(f"[!] Region {region_name} is not available. Skipping...")
             continue
+    if not scanner:
+        print_color(f"[!] App was not able to connect to AWS. Please review provided parameters")
+        exit(3)
+    if cli_arguments.auto:
+        print_color(f"[*] App started in automatic mode. All questions will be skipped an all scans will be proceeded")
+        scanner.proceed_auto_scan()
+        print_color(f"[*] Auto scan completed successfully. Please review log and output file if it was provided")
+        exit(0)
+    else:
         root_page = RootPage(scanner=scanner)
         pages = [
             root_page,
@@ -65,6 +90,7 @@ def start() -> NoReturn:
         ]
         menu = MenuBase(pages=pages, root_page=root_page)
         menu.show_root()
+
 
 if __name__ == "__main__":
     start()

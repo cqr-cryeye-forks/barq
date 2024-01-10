@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 
 @dataclass
@@ -10,3 +10,6 @@ class LambdaFunction:
     description: str
     environment: str
     region: str
+
+    def dict(self):
+        return asdict(self)

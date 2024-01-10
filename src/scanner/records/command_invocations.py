@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 
 @dataclass
@@ -10,3 +10,6 @@ class CommandInvocation:
     platform: str = 'linux'
     error: str = 'No errors'
     output: str = 'No output'
+
+    def dict(self):
+        return asdict(self)

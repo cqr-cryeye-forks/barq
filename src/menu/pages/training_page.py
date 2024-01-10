@@ -7,7 +7,7 @@ from src.constants.training import ASSUME_ROLE_POLICY_DATA, AMI_OPTIONS
 from src.helpers.generators import id_generator
 from src.helpers.linux_commands import run_linux_command
 from src.helpers.print_output import print_color
-from src.helpers.shell_options import shellscript_options
+from src.helpers.shell_options import shell_script_options
 from src.helpers.windows_commands import run_windows_command
 from src.menu.menu_commands import TRAINING_COMMANDS
 from src.menu.pages.page_base import PageBase
@@ -64,11 +64,12 @@ class TrainingPage(PageBase):
             print_color("[..] Attaching needed policies for role...")
             response_for_role = iam_client.attach_role_policy(
                 RoleName=role.name, PolicyArn='arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM')
-            print_color("[+] Role attached successfully to policy AmazonEC2RoleforSSM")
+            print_color(f"[+] Role attached successfully to policy AmazonEC2RoleforSSM. {response_for_role}")
             print_color("[..] Creating EC2 instance profile and adding it to role...")
             instance_profile = iam_resource.create_instance_profile(
                 InstanceProfileName=role.name)
             instance_profile.add_role(RoleName=role.name)
+
             device_os, ami_name = self.choose_training_ami()
             print_color(f"[+] OS chosen is: {device_os}\n[+] Amazon AMI used is: {ami_name}")
             ami_images = list(ec2_resource.images.filter(Filters=[{'Name': 'name', 'Values': [ami_name, ]}]))
@@ -88,7 +89,7 @@ class TrainingPage(PageBase):
             new_instance.wait_until_running()
             new_instance.reload()
             print_color('[+] EC2 instance state is: %s' % new_instance.state)
-            payload, action, disable_av = shellscript_options(device_os)
+            payload, action, disable_av = shell_script_options(device_os)
 
             print_color('[..] Sending the command "%s" to the running instance....' % payload)
             time.sleep(10)

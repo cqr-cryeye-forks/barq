@@ -6,6 +6,7 @@ from pygments.formatters.terminal import TerminalFormatter
 from pygments.lexers.data import JsonLexer
 
 from src.constants.attack_types import ATTACK_OPTIONS
+from src.constants.scan_modes import EC2ScanMode
 from src.helpers.print_output import add_color, print_color
 from src.menu.menu_commands import INSTANCES_COMMANDS
 from src.menu.pages.page_base import PageBase
@@ -64,8 +65,8 @@ class InstancesPage(PageBase):
         elif command == 'securitygroups':
             self.scanner.show_security_groups()
         elif command == 'ec2attacks':
-            target_options = [{'selector': '1', 'prompt': 'All EC2 instances', 'return': 'all'},
-                              {'selector': '2', 'prompt': 'Single EC2 instance', 'return': 'single'}]
+            target_options = [{'selector': '1', 'prompt': 'All EC2 instances', 'return': EC2ScanMode.ALL.value},
+                              {'selector': '2', 'prompt': 'Single EC2 instance', 'return': EC2ScanMode.SINGLE.value}]
             scan_mode = prompt.options('Choose your scope type:', target_options)
             print_color('[*] EC2 Attack List:')
             attack = prompt.options('Choose your attack mode:', ATTACK_OPTIONS)
